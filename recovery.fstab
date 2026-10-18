@@ -1,0 +1,36 @@
+# TWRP fstab for OnePlus Nord N200 5G (dre)
+# mount point    fstype   device                                      [device2]   flags
+#
+# /data is mounted as plain f2fs: userdata is currently NOT encrypted, so there
+# are deliberately no fileencryption / metadata_encryption / encryptable flags.
+
+# Logical partitions inside super
+/system_root     ext4     system                                                  flags=display="System";logical;slotselect
+/system_ext      ext4     system_ext                                              flags=display="System_ext";logical;slotselect
+/product         ext4     product                                                 flags=display="Product";logical;slotselect
+/vendor          erofs    vendor                                                  flags=display="Vendor";logical;slotselect
+/vendor_dlkm     erofs    vendor_dlkm                                             flags=display="Vendor_dlkm";logical;slotselect
+/odm             erofs    odm                                                     flags=display="Odm";logical;slotselect
+
+# Data and metadata
+/data            f2fs     /dev/block/bootdevice/by-name/userdata                  flags=display="Data";wipeingui;wipeduringfactoryreset
+/metadata        ext4     /dev/block/by-name/metadata                             flags=display="Metadata"
+/misc            emmc     /dev/block/bootdevice/by-name/misc
+/persist         ext4     /dev/block/bootdevice/by-name/persist                   flags=display="Persist"
+
+# Raw images (flashable from the TWRP install menu)
+/boot            emmc     /dev/block/bootdevice/by-name/boot                      flags=display="Boot";backup=1;flashimg=1;slotselect
+/vendor_boot     emmc     /dev/block/bootdevice/by-name/vendor_boot               flags=display="Vendor_boot";backup=1;flashimg=1;slotselect
+/dtbo            emmc     /dev/block/bootdevice/by-name/dtbo                      flags=display="Dtbo";backup=1;flashimg=1;slotselect
+/vbmeta          emmc     /dev/block/bootdevice/by-name/vbmeta                    flags=display="Vbmeta";backup=1;flashimg=1;slotselect
+/vbmeta_system   emmc     /dev/block/bootdevice/by-name/vbmeta_system             flags=display="Vbmeta_system";backup=1;flashimg=1;slotselect
+/super           emmc     /dev/block/bootdevice/by-name/super                     flags=display="Super";backup=1;flashimg=1
+
+# Firmware partitions (mounted read-only by Android)
+/modem           vfat     /dev/block/bootdevice/by-name/modem                     flags=display="Modem";slotselect
+/dsp             ext4     /dev/block/bootdevice/by-name/dsp                       flags=display="DSP";slotselect
+/bluetooth       vfat     /dev/block/bootdevice/by-name/bluetooth                 flags=display="Bluetooth";slotselect
+
+# External storage
+/external_sd     auto     /dev/block/mmcblk1p1      /dev/block/mmcblk1            flags=display="MicroSD";storage;wipeingui;removable
+/usb_otg         auto     /dev/block/sdg1           /dev/block/sdg                flags=display="USB-OTG";storage;wipeingui;removable

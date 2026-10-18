@@ -1,0 +1,133 @@
+name: Build TWRP vendor_boot (OnePlus Nord N200 / dre)
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_branch:
+        description: TWRP minimal manifest branch
+        required: true
+        default: twrp-12.1
+        type: string
+      build_target:
+        description: Make target (vendorbootimage is the one that matters)
+        required: true
+        default: vendorbootimage
+        type: string
+
+env:
+  MANIFEST_URL: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
+  LUNCH: twrp_dre-eng
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 330
+
+    steps:
+      # Merges the runner's free space into one big volume mounted at
+      # $GITHUB_WORKSPACE. Must run before checkout.
+      - name: Free up disk space
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 4096
+          temp-reserve-mb: 1024
+          swap-size-mb: 4096
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: Check out device tree
+        uses: actions/checkout@v7
+        with:
+          path: device_tree
+
+      - name: Check required input files
+        run: |
+          missing=0
+          for f in prebuilt/dtb/dtb.dtb recovery/root/first_stage_ramdisk/system/etc/fstab.qcom; do
+            if [ ! -s "device_tree/$f" ]; then
+              echo "::error::$f is missing or empty. Run scripts/prepare_inputs.sh locally, then commit and push."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git-core gnupg flex bison build-essential zip curl zlib1g-dev \
+            gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses-dev \
+            x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils \
+            xsltproc unzip fontconfig python3 python-is-python3 rsync bc lz4 cpio libssl-dev
+
+      - name: Install repo
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+          chmod a+x "$HOME/bin/repo"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@users.noreply.github.com"
+          git config --global color.ui false
+
+      - name: Sync TWRP minimal manifest
+        run: |
+          mkdir twrp
+          cd twrp
+          repo init --depth=1 --no-clone-bundle -u "$MANIFEST_URL" -b "${{ inputs.manifest_branch }}"
+          ok=0
+          for attempt in 1 2 3; do
+            if repo sync -c -j"$(nproc)" --force-sync --no-clone-bundle --no-tags; then ok=1; break; fi
+            echo "repo sync attempt $attempt failed, retrying in 30s"
+            sleep 30
+          done
+          [ "$ok" = 1 ] || { echo "::error::repo sync failed 3 times"; exit 1; }
+          df -h .
+
+      - name: Add device tree
+        run: |
+          mkdir -p twrp/device/oneplus/dre
+          rsync -a --exclude '.git' --exclude '.github' device_tree/ twrp/device/oneplus/dre/
+          # vendor_boot does not contain a kernel; empty placeholder for TARGET_PREBUILT_KERNEL
+          mkdir -p twrp/device/oneplus/dre/prebuilt
+          [ -e twrp/device/oneplus/dre/prebuilt/kernel ] || : > twrp/device/oneplus/dre/prebuilt/kernel
+          ls -R twrp/device/oneplus/dre | head -60
+
+      - name: Build
+        run: |
+          cd twrp
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          source build/envsetup.sh
+          lunch "$LUNCH"
+          mka -j"$(nproc)" "${{ inputs.build_target }}"
+
+      - name: Verify vendor_boot image
+        run: bash device_tree/scripts/verify_vendor_boot.sh twrp device_tree
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp twrp/out/target/product/dre/vendor_boot.img artifacts/vendor_boot.img
+          cd artifacts
+          sha256sum vendor_boot.img | tee vendor_boot.img.sha256
+
+      - name: Upload vendor_boot.img
+        uses: actions/upload-artifact@v7
+        with:
+          name: twrp-dre-vendor_boot
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs
+          path: |
+            twrp/out/error.log
+            twrp/out/verbose.log.gz
+          if-no-files-found: ignore
