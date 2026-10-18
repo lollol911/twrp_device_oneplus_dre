@@ -98,15 +98,52 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           cd twrp
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
           source build/envsetup.sh
           lunch "$LUNCH"
-          mka -j"$(nproc)" "${{ inputs.build_target }}"
+          mka -j"$(nproc)" "${{ inputs.build_target }}" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
-      - name: Verify vendor_boot image
-        run: bash device_tree/scripts/verify_vendor_boot.sh twrp device_tree
+      # If the stock make rule leaves the vendor ramdisk empty (the first run did),
+      # stage the recovery ramdisk explicitly and assemble vendor_boot by hand.
+      - name: Verify vendor_boot image (with fallback)
+        run: |
+          if bash device_tree/scripts/verify_vendor_boot.sh twrp device_tree; then
+            exit 0
+          fi
+          echo "::warning::The stock vendor_boot rule produced a bad image. Trying the fallback assembly."
+          set -o pipefail
+          cd twrp
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          source build/envsetup.sh
+          lunch "$LUNCH"
+          # The TWRP binary and its helpers install straight into recovery/root, but only
+          # when asked for by name (it is not in PRODUCT_PACKAGES).
+          mka -j"$(nproc)" recovery 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log" || echo "::warning::mka recovery failed"
+          mka -j"$(nproc)" out/target/product/dre/ramdisk-recovery.img 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+          cd ..
+          bash device_tree/scripts/assemble_vendor_boot.sh twrp
+          bash device_tree/scripts/verify_vendor_boot.sh twrp device_tree
+
+      - name: Diagnostics
+        if: always()
+        run: |
+          {
+            cd twrp 2>/dev/null || { echo "no twrp dir"; exit 0; }
+            OUT=out/target/product/dre
+            echo "== product out"; ls -la $OUT 2>&1 | head -60
+            echo "== vendor_boot images"; ls -la $OUT/vendor_boot.img* 2>&1
+            echo "== recovery root: top level"; ls -la $OUT/recovery/root 2>&1 | head -60
+            echo "== recovery root: entry count"; find $OUT/recovery/root 2>/dev/null | wc -l
+            echo "== recovery binary"; ls -la $OUT/recovery/root/system/bin/recovery 2>&1
+            echo "== vendor_ramdisk dir"; find $OUT/vendor_ramdisk 2>/dev/null | head -20
+            echo "== vendor_boot intermediates"; ls -la $OUT/obj/PACKAGING/vendor_boot_intermediates 2>&1
+            echo "== ninja rule for the vendor ramdisk"; grep -h -A8 "vendor_ramdisk.cpio" out/build-*.ninja 2>/dev/null | cut -c1-700 | head -40
+            echo "== build.log lines mentioning vendor_boot / ramdisk / recovery"; grep -n -i "vendor_boot\|ramdisk\|recovery" "$GITHUB_WORKSPACE/build.log" 2>/dev/null | tail -40
+          } 2>&1 | tee "$GITHUB_WORKSPACE/diagnostics.txt"
 
       - name: Collect artifacts
         run: |
@@ -122,12 +159,23 @@ jobs:
           path: artifacts/*
           if-no-files-found: error
 
-      - name: Upload build logs on failure
-        if: failure()
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p logs
+          cp diagnostics.txt logs/ 2>/dev/null || true
+          cp twrp/out/error.log logs/ 2>/dev/null || true
+          [ -f build.log ] && gzip -c build.log > logs/build.log.gz || true
+          if [ "${{ job.status }}" = "failure" ]; then
+            cp twrp/out/target/product/dre/vendor_boot.img logs/vendor_boot.UNVERIFIED-DO-NOT-FLASH.img 2>/dev/null || true
+            cp twrp/out/target/product/dre/vendor_boot.img.bad logs/vendor_boot.stock-rule-output-DO-NOT-FLASH.img 2>/dev/null || true
+          fi
+          ls -la logs
+
+      - name: Upload build logs
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: build-logs
-          path: |
-            twrp/out/error.log
-            twrp/out/verbose.log.gz
+          path: logs/*
           if-no-files-found: ignore

@@ -33,7 +33,9 @@ system and vendor.
 GitHub: Actions -> "Build TWRP vendor_boot" -> Run workflow. Takes roughly an
 hour. Download the `twrp-dre-vendor_boot` artifact. The workflow runs
 `scripts/verify_vendor_boot.sh` and fails if the image would obviously break a
-normal boot. If a build fails, download the `build-logs` artifact (`error.log`).
+normal boot. If the stock rule leaves the ramdisk empty, the workflow stages the recovery ramdisk and
+assembles `vendor_boot.img` itself (`scripts/assemble_vendor_boot.sh`), then verifies again. If a build fails,
+download the `build-logs` artifact (`diagnostics.txt`, `build.log.gz`, `error.log`).
 
 ## Testing safely (A/B)
 
