@@ -64,6 +64,14 @@ grep -qx 'init.recovery.qcom.rc' "$work/files.txt" \
   && ok "init.recovery.qcom.rc present (adb over configfs, /dev/block/bootdevice)" \
   || bad "init.recovery.qcom.rc is missing: no adb and the by-name paths in recovery.fstab would not resolve"
 
+# MTP rules (init.recovery.qcom.rc) and the NTFS driver for the microSD
+if "${dec[@]}" "$rd" | cpio -i --to-stdout '*init.recovery.qcom.rc' 2>/dev/null | grep -q 'ffs.mtp'; then
+  ok "init.recovery.qcom.rc has the MTP gadget rules"
+else
+  bad "init.recovery.qcom.rc has no ffs.mtp rules: MTP would not work"
+fi
+grep -Eq '(^|/)(mount\.ntfs|ntfs-3g)$' "$work/files.txt" && ok "ntfs-3g present" || echo "WARN: no ntfs-3g in the ramdisk (NTFS microSD would not mount)"
+
 grep -qx 'init' "$work/files.txt" && ok "/init present" || bad "/init missing"
 grep -Eq '^(twres|system/etc/twrp\.flags|system/etc/recovery\.fstab)' "$work/files.txt" \
   && ok "TWRP resources/fstab present" || bad "no TWRP resources (twres/, twrp.flags) in the ramdisk"

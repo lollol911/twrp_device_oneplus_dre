@@ -39,6 +39,11 @@ download the `build-logs` artifact (`diagnostics.txt`, `build.log.gz`, `error.lo
 
 ## Testing safely (A/B)
 
+**Slot rule.** TWRP maps the logical partitions (`system`, `vendor`, ...) of the slot it was booted from.
+If your ROM is in slot a and TWRP is in slot b, every logical mount fails with "Invalid argument". Once
+step 3 below proves the image boots Android, flash it to the slot your ROM actually lives in
+(`fastboot getvar current-slot`, `lpdump` in TWRP shows which slot has valid partitions).
+
 1. Back up both slots first: `dd if=/dev/block/by-name/vendor_boot_a of=/sdcard/vendor_boot_a.img`, same for `_b`.
 2. Flash only the **inactive** slot: `fastboot flash vendor_boot_b vendor_boot.img`, then `fastboot --set-active=b`.
 3. Boot normally and confirm Android still comes up (proves the first-stage fstab is right).
@@ -46,3 +51,12 @@ download the `build-logs` artifact (`diagnostics.txt`, `build.log.gz`, `error.lo
 5. If anything goes wrong: `fastboot --set-active=a`.
 
 Use the same vbmeta handling you already use for your custom boot image.
+
+## Known behaviour
+
+- Time zone: TWRP's built-in default is CST6CDT. Set Settings > Time Zone once (Arizona = MST7); it is saved.
+- CPU temperature reads `thermal_zone36` (`TW_CUSTOM_CPU_TEMP_PATH`); zone numbers can change with a different kernel.
+- MTP: `init.recovery.qcom.rc` adds the `ffs.mtp` function to the configfs gadget (TWRP only ships adb/fastboot).
+- microSD: kernel has no NTFS driver, `TW_INCLUDE_NTFS_3G` adds ntfs-3g; exFAT/FAT32 mount natively.
+- USB-OTG: the controller is forced to peripheral mode, so USB sticks do not mount.
+- `TW_NO_SCREEN_BLANK` keeps the panel and touch alive after the timeout; it works around, not fixes, touch resume.

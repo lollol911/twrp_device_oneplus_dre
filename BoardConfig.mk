@@ -133,3 +133,17 @@ TW_DEFAULT_BRIGHTNESS := 1200
 # Debugging (adb logcat from recovery)
 TARGET_USES_LOGD := true
 TWRP_INCLUDE_LOGCAT := true
+
+# CPU temperature: thermal_zone0 on this kernel is a modem sensor with no reading (shows 0 C).
+# thermal_zone36 is cpu-1-0-usr (checked from the thermal zone list in the recovery diagnostics).
+# Zone numbers are fixed for a given kernel build; re-check with recovery_diag.sh if you change kernels.
+TW_CUSTOM_CPU_TEMP_PATH := "/sys/class/thermal/thermal_zone36/temp"
+
+# After the screen timeout TWRP blanks the panel and the touch controller (no-flash Novatek, needs its
+# firmware reloaded on resume) stops answering. Never blank the panel: the lock screen still comes up
+# but the display and touch stay alive. This is a workaround, not a fix for the kernel touch resume.
+TW_NO_SCREEN_BLANK := true
+
+# microSD formatted NTFS: the kernel has no NTFS driver, so use ntfs-3g (FUSE) from the TWRP manifest.
+# exFAT and FAT32 cards already work through the kernel drivers.
+TW_INCLUDE_NTFS_3G := true
